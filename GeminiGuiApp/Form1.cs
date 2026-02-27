@@ -36,23 +36,31 @@ namespace GeminiGuiApp
         {
             string userPrompt = txtPrompt.Text.Trim();
             if (string.IsNullOrEmpty(userPrompt)) return;
+
             txtPrompt.Clear();
+
+            // Печатаем ваш запрос и подготавливаем строку для ответа
             rtbOutput.AppendText($"[Вы]: {userPrompt}\n");
+            rtbOutput.AppendText($"[Gemini]:\n");
+
             btnSend.Enabled = false;
 
             try
             {
-                string response = await RunGeminiCliAsync(userPrompt);
-
-                // Очищаем ответ от логов (убираем всё, что начинается с "(Log:")
-                string cleanResponse = response;
-                int logIndex = response.IndexOf("\n(Log:");
-                if (logIndex > -1)
+                // Создаем обработчик, который безопасно обновляет интерфейс
+                var progress = new Progress<string>(text =>
                 {
-                    cleanResponse = response.Substring(0, logIndex).Trim();
-                }
+                    rtbOutput.AppendText(text + "\n");
 
-                rtbOutput.AppendText($"[Gemini]: {cleanResponse}\n\n");
+                    // Автопрокрутка в самый низ, чтобы видеть новый текст
+                    rtbOutput.SelectionStart = rtbOutput.Text.Length;
+                    rtbOutput.ScrollToCaret();
+                });
+
+                // Запускаем наш новый метод (обратите внимание, мы передаем progress)
+                await RunGeminiCliStreamingAsync(userPrompt, progress);
+
+                rtbOutput.AppendText("\n\n"); // Отступ после завершения ответа
             }
             catch (Exception ex)
             {
@@ -65,82 +73,81 @@ namespace GeminiGuiApp
         }
 
         // 3. Метод-"обертка" для запуска консольной утилиты
-        private System.Threading.Tasks.Task<string> RunGeminiCliAsync(string prompt)
+        private System.Threading.Tasks.Task RunGeminiCliStreamingAsync(string prompt, IProgress<string> progress)
         {
             return System.Threading.Tasks.Task.Run(() =>
             {
                 Process process = new Process();
                 process.StartInfo.FileName = "cmd.exe";
 
-                // 1. САНИТИЗАЦИЯ ВВОДА (Защита от обрыва команды)
-                // Убираем кавычки и заменяем все переносы строк на пробелы
+                // 1. Санитизация и контекст (всё как было)
                 string safePrompt = prompt.Replace("\"", "\\\"").Replace("\r", " ").Replace("\n", " ");
-
                 string workingDir = string.Empty;
                 string contextInstruction = string.Empty;
 
-                // 2. ЛОГИКА КОНТЕКСТА (Файл или Папка)
                 if (!string.IsNullOrEmpty(_selectedPath))
                 {
                     if (_isFileSelected)
                     {
-                        // Если выбран файл: рабочая папка — это папка файла
                         workingDir = System.IO.Path.GetDirectoryName(_selectedPath);
                         string fileName = System.IO.Path.GetFileName(_selectedPath);
-
-                        // Добавляем скрытую инструкцию для фокуса на конкретном файле
                         contextInstruction = $" [Системно: Сфокусируйся на работе с файлом '{fileName}']";
                     }
                     else
                     {
-                        // Если выбрана папка: она и есть рабочая директория
                         workingDir = _selectedPath;
                     }
                 }
 
-                // 3. ФОРМИРОВАНИЕ КОМАНДЫ
-                // Склеиваем запрос пользователя и системную подсказку (в одну плоскую строку!)
                 safePrompt += contextInstruction;
-
-                // Добавляем --yolo для автоматического подтверждения действий (запись, создание и т.д.)
                 string command = $"gemini \"{safePrompt}\" --yolo";
                 process.StartInfo.Arguments = $"/C \"{command}\"";
 
-                // 4. НАСТРОЙКА РАБОЧЕЙ ДИРЕКТОРИИ
                 if (!string.IsNullOrEmpty(workingDir) && System.IO.Directory.Exists(workingDir))
                 {
                     process.StartInfo.WorkingDirectory = workingDir;
                 }
 
-                // 5. НАСТРОЙКИ СКРЫТОГО ПРОЦЕССА И ПЕРЕХВАТА ПОТОКОВ
+                // 2. Настройки процесса
                 process.StartInfo.UseShellExecute = false;
                 process.StartInfo.CreateNoWindow = true;
+
                 process.StartInfo.RedirectStandardOutput = true;
                 process.StartInfo.RedirectStandardError = true;
-
-                // UTF8 обязателен, чтобы русские символы не превратились в знаки вопроса
                 process.StartInfo.StandardOutputEncoding = System.Text.Encoding.UTF8;
                 process.StartInfo.StandardErrorEncoding = System.Text.Encoding.UTF8;
 
-                // 6. ЗАПУСК
+                // 3. ПОДПИСЫВАЕМСЯ НА СОБЫТИЯ ПОТОКОВОГО ВЫВОДА
+                process.OutputDataReceived += (sender, args) =>
+                {
+                    // Если строка не пустая, отправляем её в наш интерфейс
+                    if (args.Data != null)
+                    {
+                        progress.Report(args.Data);
+                    }
+                };
+
+                process.ErrorDataReceived += (sender, args) =>
+                {
+                    // Логи об ошибках выводим сереньким или просто помечаем
+                    if (args.Data != null)
+                    {
+                        progress.Report($"(Log: {args.Data})");
+                    }
+                };
+
+                // 4. Запускаем процесс
                 process.Start();
 
-                // 7. ЧТЕНИЕ ОТВЕТА (Синхронное ожидание конца)
-                string output = process.StandardOutput.ReadToEnd();
-                string error = process.StandardError.ReadToEnd();
+                // 5. НАЧИНАЕМ АСИНХРОННОЕ ЧТЕНИЕ (Вместо ReadToEnd)
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
 
+                // 6. Ждем, пока процесс закончит свою работу
                 process.WaitForExit();
-
-                // 8. ОБРАБОТКА ОШИБОК И ВОЗВРАТ
-                if (!string.IsNullOrEmpty(error) && process.ExitCode != 0)
-                {
-                    return $"Ошибка CLI (Код {process.ExitCode}): {error}";
-                }
-
-                // Если есть некритичные логи в Error, приклеиваем их в конец
-                return output + (string.IsNullOrEmpty(error) ? "" : $"\n(Log: {error})");
             });
         }
+        
 
         private void btnSelectFolder_Click(object sender, EventArgs e)
         {
