@@ -10,6 +10,7 @@ namespace GeminiGuiApp
         // Переменная для хранения пути к выбранному файлу        
         private string _selectedPath = string.Empty;
         private bool _isFileSelected = false; // Флаг, чтобы понимать, файл это или папка
+        private bool _isFirstRequestInSession = true;
 
         public Form1()
         {
@@ -81,6 +82,9 @@ namespace GeminiGuiApp
 
                 await RunGeminiCliStreamingAsync(userPrompt, progress);
 
+                // НОВАЯ СТРОЧКА: Запрос прошел успешно, значит сессия начата!
+                _isFirstRequestInSession = false;
+
                 rtbOutput.AppendText("\n[Ответ завершен]\n\n");
                 rtbOutput.SelectionStart = rtbOutput.Text.Length;
                 rtbOutput.ScrollToCaret();
@@ -123,8 +127,16 @@ namespace GeminiGuiApp
                     }
                 }
 
+                // ЛОГИКА ПАМЯТИ СЕССИИ
+                string sessionArg = "";
+                if (!_isFirstRequestInSession)
+                {
+                    // Если это не первый запрос, просим CLI вспомнить прошлый контекст
+                    sessionArg = "--resume latest";
+                }
+
                 safePrompt += contextInstruction;
-                string command = $"gemini \"{safePrompt}\" --yolo";
+                string command = $"gemini \"{safePrompt}\" --yolo {sessionArg}";
                 process.StartInfo.Arguments = $"/C \"{command}\"";
 
                 if (!string.IsNullOrEmpty(workingDir) && System.IO.Directory.Exists(workingDir))
@@ -179,7 +191,19 @@ namespace GeminiGuiApp
                 process.WaitForExit();
             });
         }
-        
 
+        private void btnClearChat_Click(object sender, EventArgs e)
+        {
+            // 1. Очищаем экран
+            rtbOutput.Clear();
+
+            // 2. Сбрасываем память сессии!
+            _isFirstRequestInSession = true;
+
+            // (Опционально) Сбрасываем выбранный файл/папку
+            _selectedPath = string.Empty;
+            lblSelectedPath.Text = "Файл/Папка не выбраны";
+            lblSelectedPath.ForeColor = Color.Black;
+        }
     }
 }

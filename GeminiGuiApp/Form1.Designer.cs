@@ -34,6 +34,7 @@
             btnSend = new Button();
             rtbOutput = new RichTextBox();
             btnSelectFolder = new Button();
+            btnClearChat = new Button();
             SuspendLayout();
             // 
             // txtPrompt
@@ -91,11 +92,22 @@
             btnSelectFolder.UseVisualStyleBackColor = true;
             btnSelectFolder.Click += btnSelectFolder_Click;
             // 
+            // btnClearChat
+            // 
+            btnClearChat.Location = new Point(692, 402);
+            btnClearChat.Name = "btnClearChat";
+            btnClearChat.Size = new Size(75, 23);
+            btnClearChat.TabIndex = 6;
+            btnClearChat.Text = "Clear chat";
+            btnClearChat.UseVisualStyleBackColor = true;
+            btnClearChat.Click += btnClearChat_Click;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(784, 466);
+            Controls.Add(btnClearChat);
             Controls.Add(btnSelectFolder);
             Controls.Add(rtbOutput);
             Controls.Add(btnSend);
@@ -116,5 +128,6 @@
         private Button btnSend;
         private RichTextBox rtbOutput;
         private Button btnSelectFolder;
+        private Button btnClearChat;
     }
 }
