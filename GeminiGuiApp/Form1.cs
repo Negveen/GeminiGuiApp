@@ -47,20 +47,22 @@ namespace GeminiGuiApp
 
             try
             {
-                // Создаем обработчик, который безопасно обновляет интерфейс
                 var progress = new Progress<string>(text =>
                 {
                     rtbOutput.AppendText(text + "\n");
-
-                    // Автопрокрутка в самый низ, чтобы видеть новый текст
                     rtbOutput.SelectionStart = rtbOutput.Text.Length;
                     rtbOutput.ScrollToCaret();
                 });
 
-                // Запускаем наш новый метод (обратите внимание, мы передаем progress)
+                // Программа "ждет" здесь, пока CLI генерирует текст
                 await RunGeminiCliStreamingAsync(userPrompt, progress);
 
-                rtbOutput.AppendText("\n\n"); // Отступ после завершения ответа
+                // КАК ТОЛЬКО КОНСОЛЬ ЗАКРЫЛАСЬ, ВЫВОДИМ ИНДИКАТОР:
+                rtbOutput.AppendText("\n[Ответ завершен]\n\n");
+
+                // Еще раз прокручиваем вниз, чтобы точно увидеть индикатор
+                rtbOutput.SelectionStart = rtbOutput.Text.Length;
+                rtbOutput.ScrollToCaret();
             }
             catch (Exception ex)
             {
@@ -129,9 +131,17 @@ namespace GeminiGuiApp
 
                 process.ErrorDataReceived += (sender, args) =>
                 {
-                    // Логи об ошибках выводим сереньким или просто помечаем
-                    if (args.Data != null)
+                    if (!string.IsNullOrWhiteSpace(args.Data))
                     {
+                        // Фильтруем назойливые системные сообщения
+                        if (args.Data.Contains("YOLO mode is enabled") ||
+                            args.Data.Contains("Loaded cached credentials") ||
+                            args.Data.Contains("Hook registry initialized"))
+                        {
+                            return; // Просто молча игнорируем эту строку
+                        }
+
+                        // Если это настоящая ошибка, то выводим её
                         progress.Report($"(Log: {args.Data})");
                     }
                 };
