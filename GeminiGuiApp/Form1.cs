@@ -31,6 +31,20 @@ namespace GeminiGuiApp
             }
         }
 
+        private void btnSelectFolder_Click(object sender, EventArgs e)
+        {
+            using (FolderBrowserDialog folderDialog = new FolderBrowserDialog())
+            {
+                if (folderDialog.ShowDialog() == DialogResult.OK)
+                {
+                    _selectedPath = folderDialog.SelectedPath;
+                    _isFileSelected = false;
+                    lblSelectedPath.Text = $"Папка: {_selectedPath}";
+                    lblSelectedPath.ForeColor = Color.Blue;
+                }
+            }
+        }
+
         // 2. Логика кнопки отправки запроса
         private async void btnSend_Click(object sender, EventArgs e)
         {
@@ -39,38 +53,46 @@ namespace GeminiGuiApp
 
             txtPrompt.Clear();
 
-            // Печатаем ваш запрос и подготавливаем строку для ответа
             rtbOutput.AppendText($"[Вы]: {userPrompt}\n");
             rtbOutput.AppendText($"[Gemini]:\n");
 
             btnSend.Enabled = false;
+            string originalBtnText = btnSend.Text;
+            btnSend.Text = "Думает..."; // Индикатор старта
+
+            // Флаг для отслеживания того, начался ли вывод
+            bool isPrintingStarted = false;
 
             try
             {
                 var progress = new Progress<string>(text =>
                 {
+                    // Как только получаем первую порцию текста, меняем статус (один раз)
+                    if (!isPrintingStarted)
+                    {
+                        btnSend.Text = "Печатает...";
+                        isPrintingStarted = true;
+                    }
+
                     rtbOutput.AppendText(text + "\n");
                     rtbOutput.SelectionStart = rtbOutput.Text.Length;
                     rtbOutput.ScrollToCaret();
                 });
 
-                // Программа "ждет" здесь, пока CLI генерирует текст
                 await RunGeminiCliStreamingAsync(userPrompt, progress);
 
-                // КАК ТОЛЬКО КОНСОЛЬ ЗАКРЫЛАСЬ, ВЫВОДИМ ИНДИКАТОР:
                 rtbOutput.AppendText("\n[Ответ завершен]\n\n");
-
-                // Еще раз прокручиваем вниз, чтобы точно увидеть индикатор
                 rtbOutput.SelectionStart = rtbOutput.Text.Length;
                 rtbOutput.ScrollToCaret();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка выполнения", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
                 btnSend.Enabled = true;
+                btnSend.Text = originalBtnText; // Возвращаем исходный текст ("Отправить")
             }
         }
 
@@ -159,18 +181,5 @@ namespace GeminiGuiApp
         }
         
 
-        private void btnSelectFolder_Click(object sender, EventArgs e)
-        {
-            using (FolderBrowserDialog folderDialog = new FolderBrowserDialog())
-            {
-                if (folderDialog.ShowDialog() == DialogResult.OK)
-                {
-                    _selectedPath = folderDialog.SelectedPath;
-                    _isFileSelected = false;
-                    lblSelectedPath.Text = $"Папка: {_selectedPath}";
-                    lblSelectedPath.ForeColor = Color.Blue;
-                }
-            }
-        }
     }
 }
