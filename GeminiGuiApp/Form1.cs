@@ -15,6 +15,7 @@ namespace GeminiGuiApp
         public Form1()
         {
             InitializeComponent();
+            btnClearChat.Enabled = false;
         }
 
         // 1. Логика кнопки выбора файла
@@ -84,6 +85,7 @@ namespace GeminiGuiApp
 
                 // НОВАЯ СТРОЧКА: Запрос прошел успешно, значит сессия начата!
                 _isFirstRequestInSession = false;
+                btnClearChat.Enabled = true; // Теперь у нас есть сессия, разрешаем её сбросить!
 
                 rtbOutput.AppendText("\n[Ответ завершен]\n\n");
                 rtbOutput.SelectionStart = rtbOutput.Text.Length;
@@ -199,6 +201,7 @@ namespace GeminiGuiApp
 
             // 2. Сбрасываем память сессии!
             _isFirstRequestInSession = true;
+            btnClearChat.Enabled = false; // Сессия сброшена, снова выключаем кнопку
 
             // (Опционально) Сбрасываем выбранный файл/папку
             _selectedPath = string.Empty;
