@@ -19,7 +19,7 @@ namespace GeminiGuiApp
         }
 
         // 1. Логика кнопки выбора файла
-        private void btnSelectFile_Click(object sender, EventArgs e)
+        private async void btnSelectFile_Click(object sender, EventArgs e)
         {
             using (OpenFileDialog openFileDialog = new OpenFileDialog())
             {
@@ -28,7 +28,8 @@ namespace GeminiGuiApp
                     // ВАША ИДЕЯ: Если мы уже вели диалог в старой папке, зачищаем его!
                     if (!_isFirstRequestInSession)
                     {
-                        DeleteLatestSession(); // Убираемся в старой директории
+                        // Было: await WipeGeminiTracesAsync();
+                        await System.Threading.Tasks.Task.Run(() => WipeGeminiTraces());
                         _isFirstRequestInSession = true; // Сбрасываем память для новой папки
                         rtbOutput.Clear(); // Очищаем экран от старого диалога
                         btnClearChat.Enabled = false;
@@ -42,7 +43,7 @@ namespace GeminiGuiApp
             }
         }
 
-        private void btnSelectFolder_Click(object sender, EventArgs e)
+        private async void btnSelectFolder_Click(object sender, EventArgs e)
         {
             using (FolderBrowserDialog folderDialog = new FolderBrowserDialog())
             {
@@ -51,7 +52,8 @@ namespace GeminiGuiApp
                     // ВАША ИДЕЯ: Если мы уже вели диалог в старой папке, зачищаем его!
                     if (!_isFirstRequestInSession)
                     {
-                        DeleteLatestSession(); // Убираемся в старой директории
+                        // Было: await WipeGeminiTracesAsync();
+                        await System.Threading.Tasks.Task.Run(() => WipeGeminiTraces());
                         _isFirstRequestInSession = true; // Сбрасываем память для новой папки
                         rtbOutput.Clear(); // Очищаем экран от старого диалога
                         btnClearChat.Enabled = false;
@@ -212,12 +214,16 @@ namespace GeminiGuiApp
             });
         }
 
-        private void btnClearChat_Click(object sender, EventArgs e)
+        private async void btnClearChat_Click(object sender, EventArgs e)
         {
+            string originalText = btnClearChat.Text;
+            btnClearChat.Text = "Зачистка следов...";
+            btnClearChat.Enabled = false;
             // Сначала удаляем сессию с жесткого диска
             if (!_isFirstRequestInSession)
             {
-                DeleteLatestSession();
+                // Было: await WipeGeminiTracesAsync();
+                await System.Threading.Tasks.Task.Run(() => WipeGeminiTraces());
             }
             // 1. Очищаем экран
             rtbOutput.Clear();
@@ -230,64 +236,52 @@ namespace GeminiGuiApp
             _selectedPath = string.Empty;
             lblSelectedPath.Text = "Файл/Папка не выбраны";
             lblSelectedPath.ForeColor = Color.Black;
+            btnClearChat.Text = originalText;
         }
 
-        private void DeleteLatestSession()
+        private void WipeGeminiTraces()
         {
             try
             {
-                // 1. Восстанавливаем рабочую папку, где мы наследили
-                string workingDir = string.Empty;
-                if (!string.IsNullOrEmpty(_selectedPath))
+                string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string geminiPath = System.IO.Path.Combine(userProfile, ".gemini");
+
+                string tmpPath = System.IO.Path.Combine(geminiPath, "tmp");
+                string historyPath = System.IO.Path.Combine(geminiPath, "history");
+
+                // 1. Сносим папку с историей проектов целиком (тут нам ничего не нужно)
+                if (System.IO.Directory.Exists(historyPath))
                 {
-                    workingDir = _isFileSelected ? System.IO.Path.GetDirectoryName(_selectedPath) : _selectedPath;
+                    System.IO.Directory.Delete(historyPath, true);
                 }
 
-                // 2. Читаем список сессий
-                Process listProcess = new Process();
-                listProcess.StartInfo.FileName = "cmd.exe";
-                listProcess.StartInfo.Arguments = "/C \"gemini --list-sessions\"";
-                listProcess.StartInfo.UseShellExecute = false;
-                listProcess.StartInfo.CreateNoWindow = true;
-                listProcess.StartInfo.RedirectStandardOutput = true;
-
-                if (!string.IsNullOrEmpty(workingDir) && System.IO.Directory.Exists(workingDir))
+                // 2. Умная "хирургическая" зачистка папки tmp
+                if (System.IO.Directory.Exists(tmpPath))
                 {
-                    listProcess.StartInfo.WorkingDirectory = workingDir;
-                }
-
-                listProcess.Start();
-                string output = listProcess.StandardOutput.ReadToEnd();
-                listProcess.WaitForExit(2000);
-
-                // 3. Ищем последнюю цифру с помощью Regex
-                // Шаблон: начало строки (^), возможные пробелы (\s*), захват цифр (\d+), точка (\.)
-                var matches = System.Text.RegularExpressions.Regex.Matches(output, @"^\s*(\d+)\.", System.Text.RegularExpressions.RegexOptions.Multiline);
-
-                if (matches.Count > 0)
-                {
-                    // Берем самую последнюю найденную цифру
-                    string lastIndex = matches[matches.Count - 1].Groups[1].Value;
-
-                    // 4. Безжалостно удаляем найденную сессию
-                    Process deleteProcess = new Process();
-                    deleteProcess.StartInfo.FileName = "cmd.exe";
-                    deleteProcess.StartInfo.Arguments = $"/C \"gemini --delete-session {lastIndex}\"";
-                    deleteProcess.StartInfo.UseShellExecute = false;
-                    deleteProcess.StartInfo.CreateNoWindow = true;
-
-                    if (!string.IsNullOrEmpty(workingDir) && System.IO.Directory.Exists(workingDir))
+                    // Сначала безжалостно удаляем ВСЕ одиночные файлы внутри tmp (включая logs.json)
+                    foreach (string file in System.IO.Directory.GetFiles(tmpPath))
                     {
-                        deleteProcess.StartInfo.WorkingDirectory = workingDir;
+                        System.IO.File.Delete(file);
                     }
 
-                    deleteProcess.Start();
-                    deleteProcess.WaitForExit(1000);
+                    // Затем перебираем все папки внутри tmp
+                    foreach (string dir in System.IO.Directory.GetDirectories(tmpPath))
+                    {
+                        // Получаем только имя папки (без полного пути)
+                        string dirName = System.IO.Path.GetFileName(dir);
+
+                        // Если это НЕ папка bin (игнорируем регистр на всякий случай), то сносим её!
+                        if (!dirName.Equals("bin", StringComparison.OrdinalIgnoreCase))
+                        {
+                            System.IO.Directory.Delete(dir, true); // true = вместе со всем содержимым
+                        }
+                    }
                 }
             }
             catch
             {
-                // Молча игнорируем ошибки — это фоновая очистка
+                // Если какой-то лог прямо сейчас намертво занят системой, 
+                // просто молча идем дальше, чтобы не крашить программу.
             }
         }
 
@@ -296,7 +290,7 @@ namespace GeminiGuiApp
             // Если мы хоть раз обращались к нейросети за время работы окна
             if (!_isFirstRequestInSession)
             {
-                DeleteLatestSession();
+                WipeGeminiTraces(); // Просто вызываем обычный метод
             }
         }
     }
