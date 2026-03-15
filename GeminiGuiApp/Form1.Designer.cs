@@ -31,7 +31,6 @@
             components = new System.ComponentModel.Container();
             txtPrompt = new TextBox();
             btnSelectFile = new Button();
-            lblSelectedPath = new Label();
             btnSend = new Button();
             rtbOutput = new RichTextBox();
             btnSelectFolder = new Button();
@@ -44,6 +43,9 @@
             tsmDelete = new ToolStripMenuItem();
             btnNewChat = new Button();
             panel1 = new Panel();
+            lblContextUsage = new Label();
+            txtSelectedPath = new TextBox();
+            btnResetPath = new Button();
             ((System.ComponentModel.ISupportInitialize)splitContainer1).BeginInit();
             splitContainer1.Panel1.SuspendLayout();
             splitContainer1.Panel2.SuspendLayout();
@@ -59,6 +61,7 @@
             txtPrompt.Name = "txtPrompt";
             txtPrompt.Size = new Size(674, 62);
             txtPrompt.TabIndex = 0;
+            txtPrompt.KeyDown += txtPrompt_KeyDown;
             // 
             // btnSelectFile
             // 
@@ -70,18 +73,9 @@
             btnSelectFile.UseVisualStyleBackColor = true;
             btnSelectFile.Click += btnSelectFile_Click;
             // 
-            // lblSelectedPath
-            // 
-            lblSelectedPath.AutoSize = true;
-            lblSelectedPath.Location = new Point(111, 71);
-            lblSelectedPath.Name = "lblSelectedPath";
-            lblSelectedPath.Size = new Size(78, 15);
-            lblSelectedPath.TabIndex = 2;
-            lblSelectedPath.Text = "Selected path";
-            // 
             // btnSend
             // 
-            btnSend.Location = new Point(791, 35);
+            btnSend.Location = new Point(791, 6);
             btnSend.Name = "btnSend";
             btnSend.Size = new Size(75, 23);
             btnSend.TabIndex = 3;
@@ -94,7 +88,8 @@
             rtbOutput.Dock = DockStyle.Fill;
             rtbOutput.Location = new Point(0, 0);
             rtbOutput.Name = "rtbOutput";
-            rtbOutput.Size = new Size(926, 639);
+            rtbOutput.ReadOnly = true;
+            rtbOutput.Size = new Size(926, 647);
             rtbOutput.TabIndex = 4;
             rtbOutput.Text = "";
             // 
@@ -111,7 +106,7 @@
             // btnSettings
             // 
             btnSettings.Dock = DockStyle.Bottom;
-            btnSettings.Location = new Point(0, 709);
+            btnSettings.Location = new Point(0, 740);
             btnSettings.Name = "btnSettings";
             btnSettings.Size = new Size(191, 23);
             btnSettings.TabIndex = 9;
@@ -135,7 +130,7 @@
             // 
             splitContainer1.Panel2.Controls.Add(rtbOutput);
             splitContainer1.Panel2.Controls.Add(panel1);
-            splitContainer1.Size = new Size(1121, 732);
+            splitContainer1.Size = new Size(1121, 763);
             splitContainer1.SplitterDistance = 191;
             splitContainer1.TabIndex = 10;
             // 
@@ -146,10 +141,11 @@
             lstChats.FormattingEnabled = true;
             lstChats.Location = new Point(0, 23);
             lstChats.Name = "lstChats";
-            lstChats.Size = new Size(191, 709);
+            lstChats.Size = new Size(191, 740);
             lstChats.TabIndex = 1;
             lstChats.SelectedIndexChanged += lstChats_SelectedIndexChanged;
             lstChats.MouseDown += lstChats_MouseDown;
+            lstChats.MouseMove += lstChats_MouseMove;
             // 
             // ctxChatMenu
             // 
@@ -191,22 +187,53 @@
             // 
             // panel1
             // 
+            panel1.Controls.Add(lblContextUsage);
+            panel1.Controls.Add(txtSelectedPath);
+            panel1.Controls.Add(btnResetPath);
             panel1.Controls.Add(txtPrompt);
             panel1.Controls.Add(btnSelectFile);
             panel1.Controls.Add(btnSelectFolder);
-            panel1.Controls.Add(lblSelectedPath);
             panel1.Controls.Add(btnSend);
             panel1.Dock = DockStyle.Bottom;
-            panel1.Location = new Point(0, 639);
+            panel1.Location = new Point(0, 647);
             panel1.Name = "panel1";
-            panel1.Size = new Size(926, 93);
+            panel1.Size = new Size(926, 116);
             panel1.TabIndex = 1;
+            // 
+            // lblContextUsage
+            // 
+            lblContextUsage.AutoSize = true;
+            lblContextUsage.Location = new Point(791, 32);
+            lblContextUsage.Name = "lblContextUsage";
+            lblContextUsage.Size = new Size(77, 15);
+            lblContextUsage.TabIndex = 8;
+            lblContextUsage.Text = "Контекст: -%";
+            // 
+            // txtSelectedPath
+            // 
+            txtSelectedPath.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+            txtSelectedPath.AutoCompleteSource = AutoCompleteSource.FileSystem;
+            txtSelectedPath.Location = new Point(111, 76);
+            txtSelectedPath.Name = "txtSelectedPath";
+            txtSelectedPath.Size = new Size(674, 23);
+            txtSelectedPath.TabIndex = 7;
+            txtSelectedPath.TextChanged += txtSelectedPath_TextChanged;
+            // 
+            // btnResetPath
+            // 
+            btnResetPath.Location = new Point(76, 76);
+            btnResetPath.Name = "btnResetPath";
+            btnResetPath.Size = new Size(29, 23);
+            btnResetPath.TabIndex = 6;
+            btnResetPath.Text = "❌";
+            btnResetPath.UseVisualStyleBackColor = true;
+            btnResetPath.Click += btnResetPath_Click;
             // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(1121, 732);
+            ClientSize = new Size(1121, 763);
             Controls.Add(splitContainer1);
             Name = "Form1";
             Text = "Form1";
@@ -225,7 +252,6 @@
 
         private TextBox txtPrompt;
         private Button btnSelectFile;
-        private Label lblSelectedPath;
         private Button btnSend;
         private RichTextBox rtbOutput;
         private Button btnSelectFolder;
@@ -238,5 +264,8 @@
         private ToolStripMenuItem tsmPin;
         private ToolStripMenuItem tsmRename;
         private ToolStripMenuItem tsmDelete;
+        private Button btnResetPath;
+        private TextBox txtSelectedPath;
+        private Label lblContextUsage;
     }
 }

@@ -30,13 +30,14 @@
         {
             btnClearCache = new Button();
             label1 = new Label();
+            chkShiftEnter = new CheckBox();
             SuspendLayout();
             // 
             // btnClearCache
             // 
             btnClearCache.BackColor = Color.Firebrick;
             btnClearCache.ForeColor = SystemColors.ButtonHighlight;
-            btnClearCache.Location = new Point(27, 12);
+            btnClearCache.Location = new Point(50, 79);
             btnClearCache.Name = "btnClearCache";
             btnClearCache.Size = new Size(176, 23);
             btnClearCache.TabIndex = 0;
@@ -47,21 +48,34 @@
             // label1
             // 
             label1.AutoSize = true;
-            label1.Location = new Point(58, 38);
+            label1.Location = new Point(88, 105);
             label1.Name = "label1";
             label1.Size = new Size(102, 15);
             label1.TabIndex = 1;
             label1.Text = "Остальное скоро";
             // 
+            // chkShiftEnter
+            // 
+            chkShiftEnter.AutoSize = true;
+            chkShiftEnter.Location = new Point(12, 25);
+            chkShiftEnter.Name = "chkShiftEnter";
+            chkShiftEnter.Size = new Size(236, 19);
+            chkShiftEnter.TabIndex = 2;
+            chkShiftEnter.Text = "Отправлять сообщения по Shift+Enter";
+            chkShiftEnter.UseVisualStyleBackColor = true;
+            chkShiftEnter.CheckedChanged += chkShiftEnter_CheckedChanged;
+            // 
             // SettingsForm
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(225, 88);
+            ClientSize = new Size(284, 129);
+            Controls.Add(chkShiftEnter);
             Controls.Add(label1);
             Controls.Add(btnClearCache);
             Name = "SettingsForm";
             Text = "SettingsForm";
+            Load += SettingsForm_Load;
             ResumeLayout(false);
             PerformLayout();
         }
@@ -70,5 +84,6 @@
 
         private Button btnClearCache;
         private Label label1;
+        private CheckBox chkShiftEnter;
     }
 }

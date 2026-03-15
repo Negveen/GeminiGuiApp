@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 
@@ -46,6 +48,17 @@ namespace GeminiGuiApp
         /// </summary>
         private ChatSession _contextMenuTarget = null;
 
+
+        private ToolTip _chatToolTip = new ToolTip();
+
+
+        private int _lastHoveredIndex = -1;
+
+        /// <summary>
+        /// Глобальная настройка: отправлять запрос по Shift+Enter (true) или по обычному Enter (false).
+        /// </summary>
+        public static bool SendWithShiftEnter = false;
+
         // ==========================================
         // 2. КОНСТРУКТОР
         // ==========================================
@@ -66,6 +79,7 @@ namespace GeminiGuiApp
         private void Form1_Load(object sender, EventArgs e)
         {
             LoadChatsToList();
+            btnResetPath_Click(this, EventArgs.Empty);
         }
 
         /// <summary>
@@ -151,81 +165,137 @@ namespace GeminiGuiApp
         /// </summary>
         private async void btnSend_Click(object sender, EventArgs e)
         {
+
             string userText = txtPrompt.Text.Trim();
             if (string.IsNullOrEmpty(userText)) return;
 
             // Блокируем интерфейс от двойных кликов
             btnSend.Enabled = false;
+            lstChats.Enabled = false;
             txtPrompt.Clear();
             rtbOutput.AppendText($"Вы: {userText}\n\nGemini:\n");
 
-            // 1. ИНИЦИАЛИЗАЦИЯ НОВОГО ЧАТА (если нужно)
+            // 1. ИНИЦИАЛИЗАЦИЯ НОВОГО ЧАТА
             bool isNewChat = false;
             if (_currentChat == null)
             {
                 isNewChat = true;
-                string title = userText.Length > 20 ? userText.Substring(0, 20) + "..." : userText;
-                foreach (char c in System.IO.Path.GetInvalidFileNameChars()) title = title.Replace(c, '_');
+                string title = userText;
 
-                string fileName = $"chat_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+                // Ищем конец первого предложения или абзаца
+                int dotIndex = title.IndexOf('.');
+                int newlineIndex = title.IndexOf('\n');
+
+                int cutIndex = -1;
+                if (dotIndex > 0 && newlineIndex > 0) cutIndex = Math.Min(dotIndex, newlineIndex);
+                else if (dotIndex > 0) cutIndex = dotIndex;
+                else if (newlineIndex > 0) cutIndex = newlineIndex;
+
+                // Обрезаем до точки или энтера
+                if (cutIndex > 0) title = title.Substring(0, cutIndex);
+
+                // Страховка: если юзер написал 500 символов вообще без точек
+                if (title.Length > 60) title = title.Substring(0, 60) + "...";
+
+                string safeFileName = $"chat_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+
                 _currentChat = new ChatSession
                 {
-                    Id = title,
-                    Title = title,
-                    FilePath = System.IO.Path.Combine(_chatsDirectory, fileName)
+                    Id = safeFileName,
+                    Title = title.Trim(),
+                    FilePath = System.IO.Path.Combine(_chatsDirectory, safeFileName)
                 };
-                _lastCliWorkingDir = string.Empty; // Сбрасываем якорь
+                _lastCliWorkingDir = string.Empty;
             }
 
             // 2. СОХРАНЯЕМ ВОПРОС ПОЛЬЗОВАТЕЛЯ В НАШ ЧИСТЫЙ МОЗГ
             _currentChat.Messages.Add(new ChatMessage { Role = "User", Text = userText });
 
             // 3. ПОДГОТОВКА К ОТПРАВКЕ И ДЕЛЬТА-СИНХРОНИЗАЦИЯ
-            string promptToSend = userText;
+            string promptToSend = userText;          
             bool useResume = false;
+            // Читаем то, что сейчас реально написано в текстовом поле
+            string currentInputPath = txtSelectedPath.Text.Trim();
 
-            // Определяем целевую папку 
-            // Если папка не выбрана, используем безопасную песочницу ~/.gemini
+            if (currentInputPath != _selectedPath)
+            {
+                if (!string.IsNullOrEmpty(currentInputPath))
+                {
+                    // Проверяем, существует ли реально такой файл
+                    if (System.IO.File.Exists(currentInputPath))
+                    {
+                        _isFileSelected = true;
+                        _selectedPath = currentInputPath;
+                    }
+                    // Проверяем, существует ли реально такая папка
+                    else if (System.IO.Directory.Exists(currentInputPath))
+                    {
+                        _isFileSelected = false;
+                        _selectedPath = currentInputPath;
+                    }
+                    else
+                    {
+                        // Если юзер ввел кракозябры или путь с опечаткой - тормозим процесс!
+                        MessageBox.Show("Указанный путь не существует. Проверьте правильность ввода.", "Ошибка пути", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        btnSend.Enabled = true;
+                        return; // Прерываем отправку запроса
+                    }
+                }
+                else
+                {
+                    // Если поле очистили
+                    _selectedPath = string.Empty;
+                    _isFileSelected = false;
+                }
+            }
+            // ---------------------------------
+
+            // Определяем целевую папку (Если пусто - используем песочницу ~/.gemini)
             string targetDir = string.IsNullOrEmpty(_selectedPath)
                 ? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini")
                 : _selectedPath;
-            if (_isFileSelected) targetDir = System.IO.Path.GetDirectoryName(_selectedPath); // Если выбран файл, берем его папку
+
+            // Если всё-таки выбран конкретный файл, нам нужна папка, в которой он лежит
+            if (_isFileSelected && !string.IsNullOrEmpty(_selectedPath))
+            {
+                targetDir = System.IO.Path.GetDirectoryName(_selectedPath);
+            }
 
             // ПРОВЕРЯЕМ ЯКОРЬ: Сменили ли мы папку (или загрузили старый чат)?
             if (_lastCliWorkingDir != targetDir)
             {
-                int knownOffset = 0;
-                if (_currentChat.AnchorOffsets.ContainsKey(targetDir))
-                {
-                    knownOffset = _currentChat.AnchorOffsets[targetDir];
-                }
+                // 1. Сколько сообщений папка УЖЕ знает?
+                int knownOffset = _currentChat.AnchorOffsets.ContainsKey(targetDir) ? _currentChat.AnchorOffsets[targetDir] : 0;
 
-                // ВЫСЧИТЫВАЕМ: Сколько сообщений из прошлого эта папка пропустила?
-                // (Всего сообщений минус 1 текущее минус те, что папка уже знает)
+                // 2. Сколько сообщений она пропустила? (Всего минус 1 текущее минус известные)
                 int missedMessagesCount = (_currentChat.Messages.Count - 1) - knownOffset;
 
-                if (missedMessagesCount > 0)
+                // 3. Были ли мы вообще в этой папке раньше в рамках этого чата?
+                bool isFolderFamiliar = _currentChat.AnchorOffsets.ContainsKey(targetDir);
+
+                // ИСПОЛЬЗУЕМ RESUME ТОЛЬКО ЕСЛИ: папка знакома И нет пропущенных сообщений
+                if (!isFolderFamiliar || missedMessagesCount > 0)
                 {
-                    // Берем ТОЛЬКО пропущенные сообщения
-                    var deltaMessages = _currentChat.Messages.Skip(knownOffset).Take(missedMessagesCount).ToList();
-                    string deltaText = string.Join("\n", deltaMessages.Select(m => $"{m.Role}: {m.Text}"));
+                    // Формируем Дельту (только если реально есть история)
+                    if (missedMessagesCount > 0)
+                    {
+                        var deltaMessages = _currentChat.Messages.Skip(knownOffset).Take(missedMessagesCount).ToList();
+                        string deltaText = string.Join("\n", deltaMessages.Select(m => $"{m.Role}: {m.Text}"));
+                        promptToSend = $"[Системно: Пока мы не общались в этой рабочей директории, контекст нашего диалога был таким:\n{deltaText}\nКонец контекста.]\nМой текущий запрос: {userText}";
+                    }
 
-                    promptToSend = $"[Системно: Пока мы не общались в этой рабочей директории, контекст нашего диалога был таким:\n{deltaText}\nКонец контекста.]\nМой текущий запрос: {userText}";
-
-                    useResume = false; // Начинаем новую нативную сессию, подмешивая историю
+                    useResume = false; // Начинаем новую нативную сессию CLI!
                 }
                 else
                 {
-                    // МАГИЯ: Эта папка уже знает ВСЮ историю до текущего момента! 
-                    // Значит нативная сессия CLI тут абсолютно актуальна.
-                    useResume = true;
+                    useResume = true; // Папка знакома и полностью актуальна
                 }
 
-                _lastCliWorkingDir = targetDir; // Бросаем новый якорь
+                _lastCliWorkingDir = targetDir; // Бросаем якорь
             }
             else
             {
-                // Папка не менялась, спокойно продолжаем
+                // Папка не менялась с прошлого запроса
                 useResume = true;
             }
 
@@ -240,7 +310,63 @@ namespace GeminiGuiApp
 
             // Вызываем CLI. Теперь метод должен возвращать полученный текст ответа!
             string aiResponse = await RunGeminiCliStreamingAsync(safePrompt, targetDir, useResume);
+        
 
+            try
+            {
+                string tmpDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini", "tmp");
+                if (System.IO.Directory.Exists(tmpDir))
+                {
+                    // Получаем все .json файлы сессий, исключая logs.json. 
+                    // GetLastWriteTime гарантирует, что мы возьмем файл, который ИЗМЕНИЛСЯ последним.
+                    var sessionFiles = System.IO.Directory.GetFiles(tmpDir, "*.json", System.IO.SearchOption.AllDirectories)
+                                          .Where(f => System.IO.Path.GetFileName(f) != "logs.json");
+
+                    string latestSessionPath = sessionFiles.OrderByDescending(f => System.IO.File.GetLastWriteTime(f)).FirstOrDefault();
+
+                    if (!string.IsNullOrEmpty(latestSessionPath))
+                    {
+                        string fileContent = System.IO.File.ReadAllText(latestSessionPath);
+
+                        var matchTokensBlock = System.Text.RegularExpressions.Regex.Match(fileContent, @"\""tokens\""\s*:\s*\{([^}]+)\}");
+                        if (matchTokensBlock.Success)
+                        {
+                            string tokensData = matchTokensBlock.Groups[1].Value;
+
+                            var matchTotal = System.Text.RegularExpressions.Regex.Match(tokensData, @"\""total\""\s*:\s*(\d+)");
+                            var matchInput = System.Text.RegularExpressions.Regex.Match(tokensData, @"\""input\""\s*:\s*(\d+)");
+                            var matchOutput = System.Text.RegularExpressions.Regex.Match(tokensData, @"\""output\""\s*:\s*(\d+)");
+
+                            if (matchTotal.Success)
+                            {
+                                long total = long.Parse(matchTotal.Groups[1].Value);
+                                double maxContext = 1000000.0;
+                                double percentRaw = (total / maxContext) * 100;
+                                string percentDisplay = (percentRaw > 0 && percentRaw < 1) ? "< 1" : Math.Round(percentRaw).ToString();
+                                lblContextUsage.Text = $"Контекст: {percentDisplay}%";
+                                lblContextUsage.ForeColor = percentRaw > 80 ? Color.DarkRed : Color.DarkSlateGray;
+
+                                if (matchInput.Success && matchOutput.Success)
+                                {
+                                    long input = long.Parse(matchInput.Groups[1].Value);
+                                    long output = long.Parse(matchOutput.Groups[1].Value);
+
+                                    string tooltipText = $"Всего токенов: {total:N0} из 1 000 000\n" +
+                                                         $"Входящие (Промпт): {input:N0}\n" +
+                                                         $"Исходящие (Ответ): {output:N0}";
+
+                                    _chatToolTip.SetToolTip(lblContextUsage, tooltipText);
+                                }
+                                else _chatToolTip.SetToolTip(lblContextUsage, $"Токены: {total:N0}");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Ошибка чтения токенов: " + ex.Message);
+            }
             // 5. СОХРАНЯЕМ ОТВЕТ ИИ И ЗАПИСЫВАЕМ СМЕЩЕНИЕ
             if (!string.IsNullOrEmpty(aiResponse))
             {
@@ -252,10 +378,10 @@ namespace GeminiGuiApp
                 SaveCurrentChat(); // Сохраняем наш чистый JSON на диск
 
                 if (isNewChat) LoadChatsToList(); // Если это был первый запрос, обновляем меню слева
-            }
-
+            }           
             rtbOutput.AppendText("\n\n[Ответ завершен]\n");
             btnSend.Enabled = true;
+            lstChats.Enabled = true;
         }
 
         /// <summary>
@@ -297,26 +423,46 @@ namespace GeminiGuiApp
                     {
                         if (!string.IsNullOrEmpty(e.Data))
                         {
-                            // Игнорируем технические сообщения от самого CLI в истории
-                            if (!e.Data.Contains("YOLO mode is enabled") &&
+                           
+                            if (!e.Data.Contains("YOLO mode") && !e.Data.Contains("credentials") &&
                                 !e.Data.Contains("Loaded cached credentials") &&
-                                !e.Data.Contains("Detected terminal background color"))
+                            !e.Data.Contains("Detected terminal background color"))
                             {
-                                fullResponse.AppendLine(e.Data); // Записываем в память
+                                fullResponse.AppendLine(e.Data);
+                                Invoke(new Action(() =>
+                                {
+                                    rtbOutput.AppendText(e.Data + Environment.NewLine);
+                                    rtbOutput.ScrollToCaret();
+                                }));
                             }
-
-                            // Выводим текст на экран в реальном времени (Invoke нужен для работы из фонового потока)
-                            Invoke(new Action(() =>
-                            {
-                                rtbOutput.AppendText(e.Data + Environment.NewLine);
-                                rtbOutput.ScrollToCaret(); // Автоматическая прокрутка вниз
-                            }));
                         }
                     };
+                    process.ErrorDataReceived += (sender, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            // Игнорируем тот же системный мусор, так как CLI часто пишет логи в поток ошибок
+                            if (!e.Data.Contains("YOLO mode is enabled") &&
+                                !e.Data.Contains("Loaded cached credentials") &&
+                                !e.Data.Contains("Detected terminal background color") &&
+                                !e.Data.Contains("/stats model") && // Прячем нашу техническую команду
+                                !e.Data.Contains("last_stats.json"))
+                            {
+                                string errorMsg = "[Системное сообщение CLI]: " + e.Data;
+                                fullResponse.AppendLine(errorMsg);
 
+                                Invoke(new Action(() =>
+                                {
+                                    rtbOutput.AppendText(errorMsg + Environment.NewLine);
+                                    rtbOutput.ScrollToCaret();
+                                }));
+                            }
+                        }
+                    };
                     // Запускаем процесс и начинаем чтение
                     process.Start();
                     process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
 
                     // Ждем, пока ИИ не закончит отвечать
                     process.WaitForExit();
@@ -340,8 +486,7 @@ namespace GeminiGuiApp
                     _selectedPath = folderDialog.SelectedPath;
                     _isFileSelected = false; // Помечаем, что выбрана именно папка
 
-                    lblSelectedPath.Text = $"Папка: {_selectedPath}";
-                    lblSelectedPath.ForeColor = Color.Blue;
+                    txtSelectedPath.Text = _selectedPath; // Выводим в TextBox
                 }
             }
         }
@@ -359,8 +504,7 @@ namespace GeminiGuiApp
                     _selectedPath = fileDialog.FileName;
                     _isFileSelected = true; // Помечаем, что выбран конкретный файл
 
-                    lblSelectedPath.Text = $"Файл: {_selectedPath}";
-                    lblSelectedPath.ForeColor = Color.DarkGreen;
+                    txtSelectedPath.Text = _selectedPath; // Выводим в TextBox
                 }
             }
         }
@@ -535,6 +679,77 @@ namespace GeminiGuiApp
                 catch (Exception ex) { MessageBox.Show($"Ошибка удаления: {ex.Message}"); }
             }
         }
+
+
+        private void btnResetPath_Click(object sender, EventArgs e)
+        {
+            string defaultDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini");
+            // Сбрасываем переменные
+            _selectedPath = defaultDir;
+            _isFileSelected = false;
+            txtSelectedPath.Text = defaultDir;
+        }
+
+
+        private void txtSelectedPath_TextChanged(object sender, EventArgs e)
+        {
+            string path = txtSelectedPath.Text.Trim();
+
+            if (string.IsNullOrEmpty(path))
+            {
+                txtSelectedPath.ForeColor = Color.Black; // Путь сброшен
+            }
+            else if (System.IO.File.Exists(path))
+            {
+                txtSelectedPath.ForeColor = Color.DarkGreen; // Это точный файл
+            }
+            else if (System.IO.Directory.Exists(path))
+            {
+                txtSelectedPath.ForeColor = Color.Blue; // Это папка
+            }
+            else
+            {
+                txtSelectedPath.ForeColor = Color.Red; // Путь с опечаткой или не существует
+            }
+        }
+
+
+        private void lstChats_MouseMove(object sender, MouseEventArgs e)
+        {
+            int index = lstChats.IndexFromPoint(e.Location);
+            // Если мышка над элементом и это новый элемент
+            if (index != -1 && index != _lastHoveredIndex)
+            {
+                _lastHoveredIndex = index;
+                ChatSession hoveredChat = (ChatSession)lstChats.Items[index];
+                _chatToolTip.SetToolTip(lstChats, hoveredChat.Title); // Показываем полный Title
+            }
+            // Если мышка ушла в пустую область
+            else if (index == -1 && _lastHoveredIndex != -1)
+            {
+                _lastHoveredIndex = -1;
+                _chatToolTip.SetToolTip(lstChats, ""); // Прячем подсказку
+            }
+        }
+
+
+        private void txtPrompt_KeyDown(object sender, KeyEventArgs e)
+        {
+            bool isSendAction = SendWithShiftEnter
+         ? (e.KeyCode == Keys.Enter && e.Shift)  // Если включена настройка: ждем Shift + Enter
+         : (e.KeyCode == Keys.Enter && !e.Shift); // По умолчанию: ждем просто Enter (без Shift)
+
+            if (isSendAction)
+            {
+                e.SuppressKeyPress = true; // Глушим системный звук "дзинь" и запрещаем перенос строки
+
+                if (btnSend.Enabled)
+                {
+                    btnSend_Click(this, EventArgs.Empty);
+                }
+            }
+        }
+
 
     }
 

@@ -94,6 +94,15 @@ namespace GeminiGuiApp
                 try { System.IO.File.Delete(historyDir); } catch { }
             }
         }
-        
+
+        private void SettingsForm_Load(object sender, EventArgs e)
+        {
+            chkShiftEnter.Checked = Form1.SendWithShiftEnter;
+        }
+
+        private void chkShiftEnter_CheckedChanged(object sender, EventArgs e)
+        {
+            Form1.SendWithShiftEnter = chkShiftEnter.Checked;
+        }
     }
 }
