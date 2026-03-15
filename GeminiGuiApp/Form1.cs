@@ -48,10 +48,16 @@ namespace GeminiGuiApp
         /// </summary>
         private ChatSession _contextMenuTarget = null;
 
-
+        /// <summary>
+        /// Глобальный компонент всплывающей подсказки. 
+        /// Используется для отображения длинных названий чатов в списке слева и детализации статистики токенов при наведении на контекстный индикатор.
+        /// </summary>
         private ToolTip _chatToolTip = new ToolTip();
 
-
+        /// <summary>
+        /// Хранит индекс элемента в списке чатов (lstChats), над которым в данный момент находится курсор мыши. 
+        /// Помогает избежать мерцания и лишних перерисовок ToolTip при движении мыши внутри одного элемента.
+        /// </summary>
         private int _lastHoveredIndex = -1;
 
         /// <summary>
@@ -158,10 +164,10 @@ namespace GeminiGuiApp
         }
 
         /// <summary>
-        /// Главный контроллер логики ("Мозг"). 
-        /// Создает новые сессии, вычисляет "Дельту" (какую часть истории нужно передать ИИ 
-        /// при смене папки), формирует финальный текстовый запрос, вызывает CLI 
-        /// и инициирует сохранение полученного ответа в нашу базу.
+        /// Главный контроллер отправки запроса.
+        /// Выполняет оркестрацию процесса: блокирует UI от двойных кликов, инициализирует новые сессии с умной генерацией заголовка, 
+        /// проверяет валидность путей, рассчитывает Дельта-смещения для сохранения контекста при смене директорий,
+        /// запускает асинхронную генерацию ответа и в финале парсит JSON-файлы кэша для вывода статистики использованных токенов.
         /// </summary>
         private async void btnSend_Click(object sender, EventArgs e)
         {
@@ -385,11 +391,13 @@ namespace GeminiGuiApp
         }
 
         /// <summary>
-        /// Низкоуровневая обертка для работы с процессом cmd.exe и Gemini CLI.
-        /// Запускает нейросеть в указанной папке, перехватывает потоковый вывод 
-        /// для отображения в реальном времени, отсеивает системный мусор (логи) 
-        /// и возвращает чистый текст ответа модели.
+        /// Асинхронно запускает процесс Gemini CLI в указанной директории с поддержкой потокового чтения.
+        /// Перехватывает каналы STDOUT (успешные ответы) и STDERR (системные ошибки), фильтрует технический мусор 
+        /// от CLI в реальном времени, безопасно обновляет интерфейс чата и сохраняет итоговый ответ в файл истории.
         /// </summary>
+        /// <param name="prompt">Сформированный текст запроса (включая системные Дельта-вставки, если необходимо).</param>
+        /// <param name="WorkingDirectory">Целевая папка для выполнения команды (якорь).</param>
+        /// <param name="useResume">Флаг, указывающий, нужно ли продолжать предыдущую сессию (--resume latest) или начать новую.</param>
         private async System.Threading.Tasks.Task<string> RunGeminiCliStreamingAsync(string prompt, string targetDir, bool useResume)
         {
             // Сюда мы будем собирать ответ ИИ для сохранения в историю
@@ -680,7 +688,10 @@ namespace GeminiGuiApp
             }
         }
 
-
+        /// <summary>
+        /// Обработчик кнопки сброса пути (❌).
+        /// Очищает выбранный путь и возвращает рабочую директорию программы к стандартной "песочнице" (~/.gemini).
+        /// </summary>
         private void btnResetPath_Click(object sender, EventArgs e)
         {
             string defaultDir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini");
@@ -690,7 +701,10 @@ namespace GeminiGuiApp
             txtSelectedPath.Text = defaultDir;
         }
 
-
+        /// <summary>
+        /// Динамическая валидация "умной адресной строки". 
+        /// Изменяет цвет текста "на лету": зеленый для файлов, синий для папок, красный для несуществующих путей и стандартный при пустом поле.
+        /// </summary>
         private void txtSelectedPath_TextChanged(object sender, EventArgs e)
         {
             string path = txtSelectedPath.Text.Trim();
@@ -713,7 +727,10 @@ namespace GeminiGuiApp
             }
         }
 
-
+        /// <summary>
+        /// Обработчик движения мыши над списком чатов.
+        /// Вычисляет элемент под курсором и выводит полное, необрезанное название чата во всплывающую подсказку.
+        /// </summary>
         private void lstChats_MouseMove(object sender, MouseEventArgs e)
         {
             int index = lstChats.IndexFromPoint(e.Location);
@@ -732,7 +749,10 @@ namespace GeminiGuiApp
             }
         }
 
-
+        /// <summary>
+        /// Перехватчик нажатия клавиш в основном поле ввода промпта.
+        /// Реализует логику отправки сообщения по комбинации Enter или Shift+Enter в зависимости от глобальных настроек пользователя.
+        /// </summary>
         private void txtPrompt_KeyDown(object sender, KeyEventArgs e)
         {
             bool isSendAction = SendWithShiftEnter

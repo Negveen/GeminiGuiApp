@@ -236,7 +236,7 @@
             ClientSize = new Size(1121, 763);
             Controls.Add(splitContainer1);
             Name = "Form1";
-            Text = "Form1";
+            Text = "Gemini CLI GUI App";
             Load += Form1_Load;
             splitContainer1.Panel1.ResumeLayout(false);
             splitContainer1.Panel2.ResumeLayout(false);

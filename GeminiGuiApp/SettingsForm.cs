@@ -95,11 +95,18 @@ namespace GeminiGuiApp
             }
         }
 
+        /// <summary>
+        /// Обработчик загрузки окна настроек.
+        /// Инициализирует элементы управления (например, галочку Shift+Enter), считывая их актуальные состояния из глобальных переменных главной формы.
+        /// </summary>
         private void SettingsForm_Load(object sender, EventArgs e)
         {
             chkShiftEnter.Checked = Form1.SendWithShiftEnter;
         }
 
+        /// <summary>
+        /// Синхронизирует изменение состояния чекбокса в UI с глобальной настройкой отправки сообщений (Form1.SendWithShiftEnter).
+        /// </summary>
         private void chkShiftEnter_CheckedChanged(object sender, EventArgs e)
         {
             Form1.SendWithShiftEnter = chkShiftEnter.Checked;
